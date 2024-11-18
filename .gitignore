@@ -3,4 +3,3 @@ videos/
 *.pyc
 *.pycache__
 __pycache__
-*.ipynb

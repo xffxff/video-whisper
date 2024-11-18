@@ -73,7 +73,7 @@ class VideoUnderstandingWithAria:
         inputs["pixel_values"] = inputs["pixel_values"].to(self.model.dtype)
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
 
-        with torch.no_grad():
+        with torch.inference_mode():
             output = self.model.generate(
                 **inputs,
                 max_new_tokens=2048,
@@ -84,3 +84,9 @@ class VideoUnderstandingWithAria:
             output_ids = output[0][inputs["input_ids"].shape[1]:]
             result = self.processor.decode(output_ids, skip_special_tokens=True)
         return result
+
+
+
+def fix_json(json_str: str) -> str:
+    return json_str.strip('<|im_end|>').strip('\n').strip('```').strip('json').strip('\n')
+    
