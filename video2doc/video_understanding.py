@@ -50,7 +50,7 @@ class VideoUnderstandingWithAria:
     
     def _default_prompt(self) -> str:
         return """Please split this video into scenes, providing start time, end time, a title and detailed descriptions for each scene. 
-        Ignore scenes less than 5 seconds in duration.
+        Ignore scenes less than 10 seconds in duration.
         Format the output as JSON with the following structure:
         {
             "scenes": [
@@ -79,7 +79,8 @@ class VideoUnderstandingWithAria:
                 max_new_tokens=2048,
                 stop_strings=["<|im_end|>"],
                 tokenizer=self.processor.tokenizer,
-                do_sample=False,
+                do_sample=True,
+                temperature=0.8,
             )
             output_ids = output[0][inputs["input_ids"].shape[1]:]
             result = self.processor.decode(output_ids, skip_special_tokens=True)
@@ -90,3 +91,45 @@ class VideoUnderstandingWithAria:
 def fix_json(json_str: str) -> str:
     return json_str.strip('<|im_end|>').strip('\n').strip('```').strip('json').strip('\n')
     
+
+def timestamp_to_seconds(timestamp: str) -> int:
+    """Convert timestamp string 'MM:SS' to seconds."""
+    minutes, seconds = map(int, timestamp.split(':'))
+    return minutes * 60 + seconds
+
+
+def get_frame_at_timestamp(video_file: str, timestamp: float) -> Image.Image:
+    from decord import VideoReader
+    vr = VideoReader(video_file)
+    fps = vr.get_avg_fps()
+    
+    frame_idx = int(timestamp * fps)
+    
+    frame_idx = min(max(0, frame_idx), len(vr) - 1)
+    
+    frame = vr[frame_idx].asnumpy()
+    
+    return Image.fromarray(frame).convert("RGB")
+
+
+def split_video_into_scenes(video_understanding_with_aria, frames, timestamps, max_retries=3) -> list:
+    import json
+    from time import sleep
+    
+    for attempt in range(max_retries):
+        try:
+            split_scenes_out = video_understanding_with_aria(frames, timestamps)
+            split_scenes_out = fix_json(split_scenes_out)
+            scenes = json.loads(split_scenes_out)['scenes']
+            for scene in scenes:
+                scene['start_time'] = timestamp_to_seconds(scene['start_time'])
+                scene['end_time'] = timestamp_to_seconds(scene['end_time'])
+            return scenes
+        except Exception as e:
+            print(f"\nAttempt {attempt + 1} failed.")
+            print(f"Error: {str(e)}")
+            print(f"Problematic string:\n{split_scenes_out}\n")
+            if attempt == max_retries - 1:  # Last attempt
+                raise Exception(f"Failed to parse scenes after {max_retries} attempts. Last error: {str(e)}")
+            sleep(1)  # Wait before retrying
+            continue

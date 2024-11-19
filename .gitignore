@@ -4,3 +4,4 @@ videos/
 *.pycache__
 __pycache__
 *.egg-info
+*.mp4
