@@ -5,3 +5,5 @@ videos/
 __pycache__
 *.egg-info
 *.mp4
+*.mkv
+*.wav
