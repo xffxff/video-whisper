@@ -3,12 +3,15 @@ import torch
 
 
 import os
-from moviepy.editor import VideoFileClip
+from moviepy import VideoFileClip
 
 
 def extract_audio(video_path: str, output_path: str = None) -> str:
     if output_path is None:
         output_path = os.path.splitext(video_path)[0] + '.wav'
+    
+    if os.path.exists(output_path):
+        return output_path
     
     video = VideoFileClip(video_path)
     
