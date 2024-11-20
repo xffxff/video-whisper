@@ -133,3 +133,57 @@ def split_video_into_scenes(video_understanding_with_aria, frames, timestamps, m
                 raise Exception(f"Failed to parse scenes after {max_retries} attempts. Last error: {str(e)}")
             sleep(1)  # Wait before retrying
             continue
+    
+
+
+class VideoUnderstandingWithAriaHQQInt4:
+
+    def __init__(self, model_id_or_path: str, device_map: str = "auto"):
+        from hqq.utils.aria import quantize_model, patch_model_for_compiled_runtime, generate
+        self.processor = AutoProcessor.from_pretrained(model_id_or_path, trust_remote_code=True)
+
+        self.model = AutoModelForCausalLM.from_pretrained(model_id_or_path, 
+                                                    torch_dtype=torch.bfloat16, 
+                                                    trust_remote_code=True, 
+                                                    attn_implementation={"text_config": "sdpa", "vision_config": "flash_attention_2"})
+        quantize_model(self.model)
+        patch_model_for_compiled_runtime(self.model, self.processor, warmup=True)
+
+    def _default_prompt(self) -> str:
+        return """Please split this video into scenes, providing start time, end time, a title and detailed descriptions for each scene. 
+        Ignore scenes less than 10 seconds in duration.
+        Format the output as JSON with the following structure:
+        {
+            "scenes": [
+                {
+                    "start_time": "MM:SS",
+                    "end_time": "MM:SS", 
+                    "title": "Scene title",
+                    "description": "Detailed scene description"
+                }
+            ]
+        }
+        And make sure the output can be loaded by json.loads() in Python. Do not include any other text than the JSON, such as newlines or markdown.
+        """
+    
+    def __call__(self, frames: list[Image.Image], timestamps: list[float], prompt: str = None) -> str:
+        prompt = prompt or self._default_prompt()
+        messages = construct_messages(frames, timestamps, prompt)
+        text = self.processor.apply_chat_template(messages, add_generation_prompt=True)
+        inputs = self.processor(text=text, images=frames, return_tensors="pt", max_image_size=490)
+        inputs["pixel_values"] = inputs["pixel_values"].to(self.model.dtype)
+        inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+
+        with torch.inference_mode():
+            output = self.model.generate(
+                **inputs,
+                max_new_tokens=2048,
+                stop_strings=["<|im_end|>"],
+                tokenizer=self.processor.tokenizer,
+                do_sample=True,
+                cache_implementation="static",
+                temperature=0.8,
+            )
+            output_ids = output[0][inputs["input_ids"].shape[1]:]
+            result = self.processor.decode(output_ids, skip_special_tokens=True)
+        return result
